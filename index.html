@@ -329,6 +329,8 @@
         const stations = [];
         let tempName = '';
         let unnamedCount = 0;
+        let nameUrlCount = 0;
+        let isM3uMode = false;
 
         function getUnnamed() {
             let name = unnamedCount === 0 ? "إذاعة" : "إذاعة" + unnamedCount;
@@ -340,6 +342,12 @@
             let line = lines[i].trim();
             if (!line) continue;
 
+            // تفريغ الاسم المؤقت عند غلق الأقواس لعدم تسريبه للقنوات التي تليه في نظام JSON
+            if (line === ']' || line === '}' || line === '},' || line === '],') {
+                tempName = '';
+                continue;
+            }
+
             // 1. استخراج من صيغة M3U
             if (line.startsWith('#EXTINF')) {
                 const parts = line.split(',');
@@ -348,8 +356,10 @@
                 } else {
                     tempName = ''; 
                 }
+                nameUrlCount = 0;
+                isM3uMode = true;
             } 
-            // 2. استخراج من صيغة الكود البرمجي { name: "...", url: "..." } في نفس السطر
+            // 2. استخراج من صيغة الكود البرمجي { name: "...", url: "..." }
             else if (line.includes('url:') && (line.includes('name:') || line.includes('{'))) {
                 const nameMatch = line.match(/name:\s*["']([^"']+)["']/i);
                 const urlMatch = line.match(/url:\s*["']([^"']+)["']/i);
@@ -365,20 +375,35 @@
             // 3. التقاط الاسم في صيغة JSON أو أي سطر يحتوي على Name بشكل منفصل
             else if (line.match(/"?name"?\s*:\s*["']([^"']+)["']/i)) {
                 tempName = line.match(/"?name"?\s*:\s*["']([^"']+)["']/i)[1].trim();
+                nameUrlCount = 0;
+                isM3uMode = false;
             }
-            // 4. استخراج الروابط المباشرة (حتى لو كانت داخل علامات تنصيص أو مسبوقة بكلمة url)
-            else if (line.match(/^["']?(?:url["'\s:]*)?(https?:\/\/[^\s"'<>},]+)/i)) {
+            // 4. استخراج الروابط المباشرة (حتى لو كانت داخل علامات تنصيص)
+            else if (line.match(/(https?:\/\/[^\s"'<>},]+)/i)) {
                 let match = line.match(/(https?:\/\/[^\s"'<>},]+)/i);
                 if (match) {
                     let finalUrl = match[1].trim(); 
-                    const name = tempName || getUnnamed();
+                    nameUrlCount++;
+                    
+                    let name = tempName || getUnnamed();
+                    
+                    // إذا وجدنا أكثر من رابط لنفس الإذاعة (مثل قنوات عمرو دياب)
+                    if (tempName && nameUrlCount > 1) {
+                        name = `${tempName} (رابط ${nameUrlCount})`;
+                    }
+                    
                     stations.push({ name: name, url: finalUrl });
-                    tempName = ''; 
+                    
+                    // لو جايين من M3U، الاسم بيطبق على الرابط اللي بعده مباشرة فقط
+                    if (isM3uMode) {
+                        tempName = ''; 
+                        isM3uMode = false;
+                    }
                 }
             }
         }
 
-        // 5. الفلتر الشامل للبحث في أي نص عشوائي (يتجاهل علامات التنصيص)
+        // 5. الفلتر الشامل للبحث في أي نص عشوائي (يتم تفعيله فقط في حال لم ينجح اللوب السابق)
         if (stations.length === 0) {
             const urlRegex = /(https?:\/\/[^\s"'<>},]+)/g;
             let match;
