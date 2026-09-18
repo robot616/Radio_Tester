@@ -328,6 +328,13 @@
         const lines = text.split('\n');
         const stations = [];
         let tempName = '';
+        let unnamedCount = 0;
+
+        function getUnnamed() {
+            let name = unnamedCount === 0 ? "إذاعة" : "إذاعة" + unnamedCount;
+            unnamedCount++;
+            return name;
+        }
 
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i].trim();
@@ -339,39 +346,45 @@
                 if (parts.length > 1) {
                     tempName = parts.slice(1).join(',').trim();
                 } else {
-                    tempName = 'إذاعة غير معروفة';
+                    tempName = ''; 
                 }
             } 
-            // 2. استخراج من صيغة الكود البرمجي { name: "...", url: "..." }
+            // 2. استخراج من صيغة الكود البرمجي { name: "...", url: "..." } في نفس السطر
             else if (line.includes('url:') && (line.includes('name:') || line.includes('{'))) {
                 const nameMatch = line.match(/name:\s*["']([^"']+)["']/i);
                 const urlMatch = line.match(/url:\s*["']([^"']+)["']/i);
                 
                 if (urlMatch) {
                     stations.push({ 
-                        name: nameMatch ? nameMatch[1].trim() : `رابط مستخرج ${stations.length + 1}`, 
+                        name: nameMatch ? nameMatch[1].trim() : getUnnamed(), 
                         url: urlMatch[1].trim() 
                     });
                     tempName = '';
                 }
             }
-            // 3. استخراج الروابط المباشرة (مع تنظيف أي زوائد)
-            else if (line.startsWith('http://') || line.startsWith('https://')) {
-                // إزالة أي علامات تنصيص أو فواصل في نهاية الرابط
-                let finalUrl = line.split('#')[0].replace(/["',}]+$/, '').trim(); 
-                const name = tempName || `رابط مستخرج ${stations.length + 1}`;
-                stations.push({ name: name, url: finalUrl });
-                tempName = ''; 
+            // 3. التقاط الاسم في صيغة JSON أو أي سطر يحتوي على Name بشكل منفصل
+            else if (line.match(/"?name"?\s*:\s*["']([^"']+)["']/i)) {
+                tempName = line.match(/"?name"?\s*:\s*["']([^"']+)["']/i)[1].trim();
+            }
+            // 4. استخراج الروابط المباشرة (حتى لو كانت داخل علامات تنصيص أو مسبوقة بكلمة url)
+            else if (line.match(/^["']?(?:url["'\s:]*)?(https?:\/\/[^\s"'<>},]+)/i)) {
+                let match = line.match(/(https?:\/\/[^\s"'<>},]+)/i);
+                if (match) {
+                    let finalUrl = match[1].trim(); 
+                    const name = tempName || getUnnamed();
+                    stations.push({ name: name, url: finalUrl });
+                    tempName = ''; 
+                }
             }
         }
 
-        // 4. الفلتر الشامل للبحث في أي نص عشوائي (يتجاهل علامات التنصيص)
+        // 5. الفلتر الشامل للبحث في أي نص عشوائي (يتجاهل علامات التنصيص)
         if (stations.length === 0) {
             const urlRegex = /(https?:\/\/[^\s"'<>},]+)/g;
             let match;
             while ((match = urlRegex.exec(text)) !== null) {
                 let cleanUrl = match[1].replace(/["',}]+$/, '').trim();
-                stations.push({ name: `رابط مستخرج ${stations.length + 1}`, url: cleanUrl });
+                stations.push({ name: getUnnamed(), url: cleanUrl });
             }
         }
 
